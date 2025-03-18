@@ -1,0 +1,168 @@
+#!/bin/bash
+
+# スクリプトの実際のパスを取得（シンボリックリンク解決）
+SCRIPT_PATH="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+# 現在のディレクトリを取得
+CURRENT_DIR="$(pwd)"
+
+# 変数の初期化
+TEMPLATES_DIR="$SCRIPT_DIR/templates"
+DEFAULT_TEMPLATE="resume.typ"
+PROJECT_NAME=""
+TEMPLATE=""
+
+# ヘルプメッセージの表示
+usage() {
+    echo "使い方: new-typ [オプション]"
+    echo "オプション:"
+    echo "  -p, --project 名前    プロジェクト名を指定"
+    echo "  -t, --template ファイル名  使用するテンプレートファイルを指定"
+    echo "  -h, --help           このヘルプを表示"
+    exit 1
+}
+
+# コマンドライン引数の解析
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -p|--project)
+            PROJECT_NAME="$2"
+            shift 2
+            ;;
+        -t|--template)
+            TEMPLATE="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            ;;
+        *)
+            echo "不明なオプション: $1"
+            usage
+            ;;
+    esac
+done
+
+# スクリプトが現在のディレクトリと同じディレクトリツリー内にあるか確認
+if [[ "$CURRENT_DIR" != "$SCRIPT_DIR"* ]]; then
+    echo "エラー: このスクリプトは $SCRIPT_DIR またはそのサブディレクトリ内でのみ実行できます。"
+    exit 1
+fi
+
+# dialogがインストールされているか確認
+check_dialog() {
+    if ! command -v dialog &> /dev/null; then
+        echo "dialogコマンドが見つかりません。インストールしてください。"
+        echo "Ubuntu/Debian: sudo apt-get install dialog"
+        echo "Fedora/RHEL: sudo dnf install dialog"
+        exit 1
+    fi
+}
+
+# プロジェクト名の入力（指定されていない場合）
+get_project_name() {
+    if [[ -z "$PROJECT_NAME" ]]; then
+        PROJECT_NAME=$(dialog --stdout --inputbox "プロジェクト名を入力してください:" 8 40)
+        if [[ -z "$PROJECT_NAME" ]]; then
+            clear
+            echo "プロジェクト名が入力されませんでした。終了します。"
+            exit 1
+        fi
+    fi
+}
+
+# テンプレートの選択（指定されていない場合）
+select_template() {
+    if [[ -z "$TEMPLATE" ]]; then
+        # templates ディレクトリからテンプレートファイル一覧を取得
+        if [[ ! -d "$TEMPLATES_DIR" ]]; then
+            clear
+            echo "エラー: テンプレートディレクトリ ($TEMPLATES_DIR) が存在しません。"
+            exit 1
+        fi
+        
+        # テンプレートファイルをリスト化
+        TEMPLATE_FILES=()
+        TEMPLATE_OPTIONS=()
+        DEFAULT_ITEM=0
+        COUNT=0
+        
+        while IFS= read -r file; do
+            filename=$(basename "$file")
+            TEMPLATE_FILES+=("$filename")
+            TEMPLATE_OPTIONS+=("$filename" "")
+            
+            # デフォルトテンプレートがあればその位置を記録
+            if [[ "$filename" == "$DEFAULT_TEMPLATE" ]]; then
+                DEFAULT_ITEM=$COUNT
+            fi
+            ((COUNT++))
+        done < <(find "$TEMPLATES_DIR" -type f -name "*.typ" | sort)
+        
+        if [[ ${#TEMPLATE_FILES[@]} -eq 0 ]]; then
+            clear
+            echo "エラー: テンプレートディレクトリにTypstファイル(.typ)が見つかりません。"
+            exit 1
+        fi
+        
+        # dialogでテンプレート選択
+        TEMPLATE=$(dialog --stdout --default-item "$DEFAULT_ITEM" \
+                         --menu "使用するテンプレートを選択してください:" 15 50 10 \
+                         "${TEMPLATE_OPTIONS[@]}")
+        
+        if [[ -z "$TEMPLATE" ]]; then
+            clear
+            echo "テンプレートが選択されませんでした。終了します。"
+            exit 1
+        fi
+    else
+        # 指定されたテンプレートが存在するか確認
+        if [[ ! -f "$TEMPLATES_DIR/$TEMPLATE" ]]; then
+            echo "エラー: 指定されたテンプレート ($TEMPLATE) が見つかりません。"
+            exit 1
+        fi
+    fi
+}
+
+# プロジェクトの作成
+create_project() {
+    # プロジェクトディレクトリの作成
+    mkdir -p "$CURRENT_DIR/$PROJECT_NAME/assets"
+    
+    if [[ $? -ne 0 ]]; then
+        clear
+        echo "エラー: プロジェクトディレクトリの作成に失敗しました。"
+        exit 1
+    fi
+    
+    # テンプレートファイルのコピー
+    cp "$TEMPLATES_DIR/$TEMPLATE" "$CURRENT_DIR/$PROJECT_NAME/$PROJECT_NAME.typ"
+    
+    if [[ $? -ne 0 ]]; then
+        clear
+        echo "エラー: テンプレートファイルのコピーに失敗しました。"
+        exit 1
+    fi
+    
+    clear
+    echo "プロジェクト「$PROJECT_NAME」を作成しました！"
+    echo "テンプレート: $TEMPLATE"
+    echo "場所: $CURRENT_DIR/$PROJECT_NAME"
+    echo ""
+    echo "ディレクトリ構造:"
+    echo "$CURRENT_DIR/$PROJECT_NAME/"
+    echo "├── $PROJECT_NAME.typ"
+    echo "└── assets/"
+}
+
+# メイン処理
+main() {
+    check_dialog
+    get_project_name
+    select_template
+    create_project
+}
+
+# スクリプトの実行
+main
